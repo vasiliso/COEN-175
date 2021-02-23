@@ -1,4 +1,3 @@
-//Vasilis Odysseos
 /*
  * File:	parser.cpp
  *
@@ -10,20 +9,19 @@
 # include <cstdlib>
 # include <iostream>
 # include "checker.h"
+# include "string.h"
 # include "tokens.h"
 # include "lexer.h"
+# include "Generator.h"
 
 using namespace std;
 
 static int lookahead;
 static string lexbuf;
 
-static Type expression(bool &lvalue);
-static Type statement();
-
-static const Type typeError;
-
-static string lvalue_required = "lvalue required in expression";
+static Expression *expression();
+static Statement *statement();
+static Type returnType;
 
 
 /*
@@ -91,13 +89,6 @@ static string identifier()
     buf = lexbuf;
     match(ID);
     return buf;
-}
-
-static int stringID(){
-	string buf;
-	buf = lexbuf;
-	match(STRING);
-	return buf.length();
 }
 
 
@@ -260,53 +251,54 @@ static void declarations()
  *		  expression , expression-list
  */
 
-static Type primaryExpression(bool &lvalue)
+static Expression *primaryExpression()
 {
+    Symbol *symbol;
+    Expression *expr;
+
+
     if (lookahead == '(') {
 	match('(');
-	Type type = expression(lvalue);
+	expr = expression();
 	match(')');
-	return type;
 
     } else if (lookahead == STRING) {
-	int length = stringID();
-	lvalue = false;
-	return Type(CHAR, 0, length);
+	lexbuf = lexbuf.substr(1, lexbuf.size() - 2);
+	expr = new String(escapeString(parseString(lexbuf)));
+	match(STRING);
+
     } else if (lookahead == NUM) {
+	expr = new Number(lexbuf);
 	match(NUM);
-	lvalue = false;
-	return Type(INT);
 
     } else if (lookahead == ID) {
-	Symbol *symbol = checkIdentifier(identifier());
+	Expressions args;
+	symbol = checkIdentifier(identifier());
 
 	if (lookahead == '(') {
-		Parameters *args = new Parameters();
 	    match('(');
 
 	    if (lookahead != ')') {
-		args->push_back(expression(lvalue).promote());
+		args.push_back(expression());
+
 		while (lookahead == ',') {
 		    match(',');
-		    args-> push_back(expression(lvalue).promote());
+		    args.push_back(expression());
 		}
 	    }
-		Type retType = checkFunction(symbol->type(), args);
-	    match(')');
-		lvalue = false;
-		return retType;
-		
-	}
-	if(symbol->type().isScalar()){
-		lvalue = true;
-	}else{
-		lvalue = false;
-	}
-	return symbol->type();
 
-    } else
+	    expr = checkCall(symbol, args);
+	    match(')');
+
+	} else
+	    expr = new Identifier(symbol);
+
+    } else {
+	expr = nullptr;
 	error();
-	return typeError;
+    }
+
+    return expr;
 }
 
 
@@ -320,19 +312,21 @@ static Type primaryExpression(bool &lvalue)
  *		  postfix-expression [ expression ]
  */
 
-static Type postfixExpression(bool &lvalue)
+static Expression *postfixExpression()
 {
-	Type left = primaryExpression(lvalue);
+    Expression *left, *right;
+
+
+    left = primaryExpression();
 
     while (lookahead == '[') {
 	match('[');
-	Type right = expression(lvalue);
+	right = expression();
+	left = checkArray(left, right);
 	match(']');
-	left = checkPostfix(left.promote(), right.promote());
-	lvalue = true;
-	cout << "check []" << endl;
     }
-	return left;
+
+    return left;
 }
 
 
@@ -350,49 +344,40 @@ static Type postfixExpression(bool &lvalue)
  *		  sizeof prefix-expression
  */
 
-static Type prefixExpression(bool &lvalue)
+static Expression *prefixExpression()
 {
+    Expression *expr;
+
+
     if (lookahead == '!') {
 	match('!');
-	Type operand = prefixExpression(lvalue);
-	operand = checkNot(operand);
-	cout << "check !" << endl;
-	lvalue = false;
-	return operand;
+	expr = prefixExpression();
+	expr = checkNot(expr);
+
     } else if (lookahead == '-') {
 	match('-');
-	Type operand = prefixExpression(lvalue);
-	operand = checkNegate(operand.promote());
-	cout << "check -" << endl;
-	lvalue = false;
-	return operand;
+	expr = prefixExpression();
+	expr = checkNegate(expr);
+
     } else if (lookahead == '*') {
 	match('*');
-	Type operand = prefixExpression(lvalue);
-	operand = checkDeref(operand.promote());
-	lvalue = true;
-	cout << "deref" << endl;
-	return operand;
+	expr = prefixExpression();
+	expr = checkDereference(expr);
+
     } else if (lookahead == '&') {
 	match('&');
-	Type operand = prefixExpression(lvalue);
-	if(lvalue == false) {
-		report(lvalue_required, "");
-		return typeError;
-	}
-	operand = checkAddress(operand);
-	cout << "check &" << endl;
-	lvalue = false;
-	return operand;
+	expr = prefixExpression();
+	expr = checkAddress(expr);
+
     } else if (lookahead == SIZEOF) {
 	match(SIZEOF);
-	Type operand = prefixExpression(lvalue);
-	operand = checkSizeOf(operand);
-	cout << "check sizeof" << endl;
-	lvalue = false;
-	return operand;
+	expr = prefixExpression();
+	expr = checkSizeof(expr);
+
     } else
-	return postfixExpression(lvalue);
+	expr = postfixExpression();
+
+    return expr;
 }
 
 
@@ -410,33 +395,34 @@ static Type prefixExpression(bool &lvalue)
  *		  multiplicative-expression % prefix-expression
  */
 
-static Type multiplicativeExpression(bool &lvalue)
+static Expression *multiplicativeExpression()
 {
-    Type left = prefixExpression(lvalue);
+    Expression *left, *right;
+
+
+    left = prefixExpression();
 
     while (1) {
 	if (lookahead == '*') {
 	    match('*');
-	    Type right = prefixExpression(lvalue);
-		left = checkMultiplication(left.promote(), right.promote());
-	    cout << "check *" << endl;
-		lvalue = false;
+	    right = prefixExpression();
+	    left = checkMultiply(left, right);
+
 	} else if (lookahead == '/') {
 	    match('/');
-	    Type right = prefixExpression(lvalue);
-		left = checkDivision(left.promote(), right.promote());
-	    cout << "check /" << endl;
-		lvalue = false;
+	    right = prefixExpression();
+	    left = checkDivide(left, right);
+
 	} else if (lookahead == '%') {
 	    match('%');
-	    Type right = prefixExpression(lvalue);
-		left = checkRemainder(left.promote(), right.promote());
-	    cout << "check %" << endl;
-		lvalue = false;
+	    right = prefixExpression();
+	    left = checkRemainder(left, right);
+
 	} else
 	    break;
     }
-	return left;
+
+    return left;
 }
 
 
@@ -451,27 +437,29 @@ static Type multiplicativeExpression(bool &lvalue)
  *		  additive-expression - multiplicative-expression
  */
 
-static Type additiveExpression(bool &lvalue)
+static Expression *additiveExpression()
 {
-    Type left = multiplicativeExpression(lvalue);
+    Expression *left, *right;
+
+
+    left = multiplicativeExpression();
 
     while (1) {
 	if (lookahead == '+') {
 	    match('+');
-	    Type right = multiplicativeExpression(lvalue);
-		left = checkAddition(left.promote(), right.promote());
-	    cout << "check +" << endl;
-		lvalue = false;
+	    right = multiplicativeExpression();
+	    left = checkAdd(left, right);
+
 	} else if (lookahead == '-') {
 	    match('-');
-	    Type right = multiplicativeExpression(lvalue);
-		left = checkSubtraction(left.promote(), right.promote());
-	    cout << "check -" << endl;
-		lvalue = false;
+	    right = multiplicativeExpression();
+	    left = checkSubtract(left, right);
+
 	} else
 	    break;
     }
-	return left;
+
+    return left;
 }
 
 
@@ -490,39 +478,39 @@ static Type additiveExpression(bool &lvalue)
  *		  relational-expression >= additive-expression
  */
 
-static Type relationalExpression(bool &lvalue)
+static Expression *relationalExpression()
 {
-    Type left = additiveExpression(lvalue);
+    Expression *left, *right;
+
+
+    left = additiveExpression();
 
     while (1) {
 	if (lookahead == '<') {
 	    match('<');
-	    Type right = additiveExpression(lvalue);
-		left = checkLT(left.promote(), right.promote());
-	    cout << "check <" << endl;
-		lvalue = false;
+	    right = additiveExpression();
+	    left = checkLessThan(left, right);
+
 	} else if (lookahead == '>') {
 	    match('>');
-	    Type right = additiveExpression(lvalue);
-		left = checkGT(left.promote(), right.promote());
-	    cout << "check >" << endl;
-		lvalue = false;
+	    right = additiveExpression();
+	    left = checkGreaterThan(left, right);
+
 	} else if (lookahead == LEQ) {
 	    match(LEQ);
-	    Type right = additiveExpression(lvalue);
-		left = checkLEQ(left.promote(), right.promote());
-	    cout << "check <=" << endl;
-		lvalue = false;
+	    right = additiveExpression();
+	    left = checkLessOrEqual(left, right);
+
 	} else if (lookahead == GEQ) {
 	    match(GEQ);
-	    Type right = additiveExpression(lvalue);
-		left = checkGEQ(left.promote(), right.promote());
-	    cout << "check >=" << endl;
-		lvalue = false;
+	    right = additiveExpression();
+	    left = checkGreaterOrEqual(left, right);
+
 	} else
 	    break;
     }
-	return left;
+
+    return left;
 }
 
 
@@ -537,28 +525,29 @@ static Type relationalExpression(bool &lvalue)
  *		  equality-expression != relational-expression
  */
 
-static Type equalityExpression(bool & lvalue)
+static Expression *equalityExpression()
 {
-    Type left = relationalExpression(lvalue);
+    Expression *left, *right;
+
+
+    left = relationalExpression();
 
     while (1) {
 	if (lookahead == EQL) {
 	    match(EQL);
-	    Type right = relationalExpression(lvalue);
-		left = checkEqual(left.promote(), right.promote());
-	    cout << "check ==" << endl;
-		lvalue = false;
+	    right = relationalExpression();
+	    left = checkEqual(left, right);
+
 	} else if (lookahead == NEQ) {
 	    match(NEQ);
-	    Type right = relationalExpression(lvalue);
-		left = checkNotEqual(left.promote(), right.promote());
-	    cout << "check !=" << endl;
-		lvalue = false;
+	    right = relationalExpression();
+	    left = checkNotEqual(left, right);
 
 	} else
 	    break;
     }
-	return left;
+
+    return left;
 }
 
 
@@ -573,18 +562,20 @@ static Type equalityExpression(bool & lvalue)
  *		  logical-and-expression && equality-expression
  */
 
-static Type logicalAndExpression(bool &lvalue)
+static Expression *logicalAndExpression()
 {
-    Type left = equalityExpression(lvalue);
+    Expression *left, *right;
+
+
+    left = equalityExpression();
 
     while (lookahead == AND) {
-		match(AND);
-		Type right = equalityExpression(lvalue);
-		left = checkLogicalAnd(left.promote(), right.promote());
-		cout << "check &&" << endl;
-		lvalue = false;
+	match(AND);
+	right = equalityExpression();
+	left = checkLogicalAnd(left, right);
     }
-	return left;
+
+    return left;
 }
 
 
@@ -600,19 +591,20 @@ static Type logicalAndExpression(bool &lvalue)
  *		  expression || logical-and-expression
  */
 
-static Type expression(bool &lvalue)
+static Expression *expression()
 {
-    Type left = logicalAndExpression(lvalue);
+    Expression *left, *right;
+
+
+    left = logicalAndExpression();
 
     while (lookahead == OR) {
-		match(OR);
-		Type right = logicalAndExpression(lvalue);
-		left = checkLogicalOr(left.promote(), right.promote());
-		lvalue = false;
-		cout << "check ||" << endl;
-		lvalue = false;
+	match(OR);
+	right = logicalAndExpression();
+	left = checkLogicalOr(left, right);
     }
-	return left;
+
+    return left;
 }
 
 
@@ -629,12 +621,15 @@ static Type expression(bool &lvalue)
  *		  statement statements
  */
 
-static Type statements()
+static Statements statements()
 {
-	Type type;
+    Statements stmts;
+
+
     while (lookahead != '}')
-		type = statement();
-	return type;
+	stmts.push_back(statement());
+
+    return stmts;
 }
 
 
@@ -648,22 +643,19 @@ static Type statements()
  *		  expression
  */
 
-static void assignment()
+static Statement *assignment()
 {
-	bool lvalue = false;
-    Type left = expression(lvalue);
-	
+    Expression *expr;
+
+
+    expr = expression();
 
     if (lookahead == '=') {
 	match('=');
-	if(lvalue == false){
-		report("lvalue required in expression");
-	}
-	Type right = expression(lvalue);
-	left = checkAssignment(left.promote(), right.promote());
-	
+	return checkAssignment(expr, expression());
     }
-	return;
+
+    return new Simple(expr);
 }
 
 
@@ -683,55 +675,74 @@ static void assignment()
  *		  assignment ;
  */
 
-static Type statement()
+static Statement *statement()
 {
-	bool lvalue = false;
+    Scope *decls;
+    Expression *expr;
+    Statement *stmt, *init, *incr;
+    Statements stmts;
+
+
     if (lookahead == '{') {
 	match('{');
 	openScope();
 	declarations();
-	statements();
-	closeScope();
+	stmts = statements();
+	decls = closeScope();
 	match('}');
-    } else if (lookahead == RETURN) {
+	return new Block(decls, stmts);
+    }
+
+    if (lookahead == RETURN) {
 	match(RETURN);
-	Type type = expression(lvalue);
-	checkReturnType(type);
+	expr = expression();
+	checkReturn(expr, returnType);
 	match(';');
-	return type;
-    } else if (lookahead == WHILE) {
+	return new Return(expr);
+    }
+
+    if (lookahead == WHILE) {
 	match(WHILE);
 	match('(');
-	checkWhileForIf(expression(lvalue));
+	expr = expression();
+	checkTest(expr);
 	match(')');
-	statement();
-	
-    } else if (lookahead == FOR) {
+	stmt = statement();
+	return new While(expr, stmt);
+    }
+
+    if (lookahead == FOR) {
 	match(FOR);
 	match('(');
-	assignment();
+	init = assignment();
 	match(';');
-	checkWhileForIf(expression(lvalue));
+	expr = expression();
+	checkTest(expr);
 	match(';');
-	assignment();
+	incr = assignment();
 	match(')');
-	statement();
-	
-    } else if (lookahead == IF) {
+	stmt = statement();
+	return new For(init, expr, incr, stmt);
+    }
+
+    if (lookahead == IF) {
 	match(IF);
 	match('(');
-	checkWhileForIf(expression(lvalue));
+	expr = expression();
+	checkTest(expr);
 	match(')');
-	statement();
-	if (lookahead == ELSE) {
-	    match(ELSE);
-	    statement();
-	}
-    } else {
-	assignment();
-	match(';');
+	stmt = statement();
+
+	if (lookahead != ELSE)
+	    return new If(expr, stmt, nullptr);
+
+	match(ELSE);
+	return new If(expr, stmt, statement());
     }
-	return typeError;
+
+    stmt = assignment();
+    match(';');
+    return stmt;
 }
 
 
@@ -892,6 +903,10 @@ static void globalOrFunction()
     int typespec;
     unsigned indirection;
     string name;
+    Statements stmts;
+    Function *function;
+    Symbol *symbol;
+    Scope *decls;
 
 
     typespec = specifier();
@@ -914,14 +929,18 @@ static void globalOrFunction()
 
 	} else {
 	    openScope();
-		Type funcType = Type(typespec, indirection, parameters());
-	    defineFunction(name, funcType);
+	    returnType = Type(typespec, indirection);
+	    symbol = defineFunction(name, Type(typespec, indirection, parameters()));
 	    match(')');
 	    match('{');
 	    declarations();
-		statements();
-	    closeScope();
+	    stmts = statements();
+	    decls = closeScope();
+	    function = new Function(symbol, new Block(decls, stmts));
 	    match('}');
+
+	    if (numerrors == 0)
+		function->generate();
 	}
 
     } else {
@@ -945,6 +964,7 @@ int main()
     while (lookahead != DONE)
 	globalOrFunction();
 
-    closeScope();
+    Scope * global = closeScope();
+	generateGlobals(global);
     exit(EXIT_SUCCESS);
 }

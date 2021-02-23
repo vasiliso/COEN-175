@@ -22,10 +22,10 @@
 # include <cassert>
 # include "tokens.h"
 # include "Type.h"
-# include "lexer.h"
 
 using namespace std;
-static Type voidPtr(VOID,1);
+
+static Type voidPtr(VOID, 1);
 
 
 /*
@@ -174,27 +174,6 @@ bool Type::isError() const
     return _kind == ERROR;
 }
 
-bool Type::isInteger() const
-{
-    return _kind == SCALAR && _specifier != VOID && _indirection == 0;
-}
-
-bool Type::isPointer() const
-{
-    return (_kind == SCALAR && _indirection > 0) || _kind == ARRAY;
-}
-
-bool Type::isValue() const
-{
-    return isInteger() || isPointer();
-}
-
-bool Type::isPointerToT() const
-{
-    return isPointer() && *this != voidPtr;
-}
-
-
 
 /*
  * Function:	Type::specifier (accessor)
@@ -234,6 +213,23 @@ unsigned Type::length() const
     return _length;
 }
 
+unsigned Type::size() const
+{
+    if(isFunction()){
+        return 0;
+    }
+    int val;
+    if (_indirection > 0 || _specifier == INT){
+        val = 4;
+    }else{
+        val = 1;
+    }
+    if(isArray()){
+        return val*_length;
+    }else{
+        return val;
+    }
+}
 
 /*
  * Function:	Type::parameters (accessor)
@@ -249,16 +245,96 @@ Parameters *Type::parameters() const
 }
 
 
+/*
+ * Function:	Type::isValue
+ *
+ * Description:	Check if this type is a value type after any promotion.
+ */
+
+bool Type::isValue() const
+{
+    return isPointer() || isInteger();
+}
+
+
+/*
+ * Function:	Type::isInteger
+ *
+ * Description:	Check if this type is the integer type after any promotion.
+ *		For efficiency, we perform the promotion implicitly.
+ */
+
+bool Type::isInteger() const
+{
+    return _kind == SCALAR && _specifier != VOID && _indirection == 0;
+}
+
+
+/*
+ * Function:	Type::isPointer
+ *
+ * Description:	Check if this type is a pointer type after any promotion.
+ *		For efficiency, we perform the promotion implicitly.
+ */
+
+bool Type::isPointer() const
+{
+    return (_kind == SCALAR && _indirection > 0) || _kind == ARRAY;
+}
+
+
+/*
+ * Function:	Type::isCompatibleWith
+ *
+ * Description:	Check if this type is compatible with the other given type.
+ *		In Simple C, two types are compatible if they are identical
+ *		value types (after any promotion) or one is a pointer type
+ *		and the other is pointer to void.
+ */
+
+bool Type::isCompatibleWith(const Type &that) const
+{
+    if (isPointer() && that == voidPtr)
+	return true;
+
+    if (that.isPointer() && *this == voidPtr)
+	return true;
+
+    return isValue() && promote() == that.promote();
+}
+
+
+/*
+ * Function:	Type::promote
+ *
+ * Description:	Return the result of performing type promotion on this
+ *		type.  In Simple C, a character is promoted to an integer,
+ *		and an array is promoted to a pointer.
+ */
+
 Type Type::promote() const
 {
-    if (_kind == SCALAR && _indirection == 0 && _specifier == CHAR){
-        return Type(INT);
-    }
-    if (_kind == ARRAY){
-        return Type(_specifier, _indirection + 1);
-    }
+    if (_kind == SCALAR && _indirection == 0 && _specifier == CHAR)
+	return Type(INT, 0);
+
+    if (_kind == ARRAY)
+	return Type(_specifier, _indirection + 1);
 
     return *this;
+}
+
+
+/*
+ * Function:	Type::deref
+ *
+ * Description:	Return the result of dereferencing this type, which must be
+ *		a pointer type.
+ */
+
+Type Type::deref() const
+{
+    assert(_kind == SCALAR && _indirection > 0);
+    return Type(_specifier, _indirection - 1);
 }
 
 
@@ -295,35 +371,4 @@ ostream &operator <<(ostream &ostr, const Type &type)
     }
 
     return ostr;
-}
-
-
-
-
-// bool Type::isCompatibleWith(const Type &right) const{
-//     if(!isScalar() || !right.isScalar()){
-//         return false;
-//     }
-//     if (isValue() && right.isValue())
-//     {
-//         if(_indirection == right.indirection() && _specifier == right.specifier()){
-//             return true;
-//         }
-//     }
-//     if(_indirection > 0 && right.indirection() == 1 && right.specifier() == VOID){
-//         return true;
-//     }else if (_indirection == 1 && _specifier == VOID && right.indirection() > 0 ){
-//         return true;
-//     }
-//     return false;
-    
-    
-// }
-
-bool Type::isCompatibleWith(const Type &right) const{
-    if (isPointer() && right == voidPtr)
-        return true;
-    if (right.isPointer() && *this == voidPtr)
-        return true;
-    return isValue() && *this == right;
 }

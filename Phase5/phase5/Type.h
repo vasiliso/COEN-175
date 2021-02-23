@@ -50,18 +50,21 @@ public:
     bool isScalar() const;
     bool isFunction() const;
     bool isError() const;
-    bool isInteger() const;
-    bool isPointer() const;
-    bool isValue() const;
-    bool isPointerToT() const;
-    bool isCompatibleWith(const Type &right) const;
 
     int specifier() const;
     unsigned indirection() const;
     unsigned length() const;
+    unsigned size() const;
     Parameters *parameters() const;
-    
+
+    bool isValue() const;
+    bool isInteger() const;
+    bool isPointer() const;
+    bool isCompatibleWith(const Type &that) const;
+
     Type promote() const;
+    Type deref() const;
+
 };
 
 std::ostream &operator <<(std::ostream &ostr, const Type &type);

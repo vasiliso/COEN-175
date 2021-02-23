@@ -248,16 +248,16 @@ Type checkAdditive(const Type &left, const Type &right, const string &op){
     if (left.isInteger() && right.isInteger()){
         return integer;
     }
-    if (left.isPointer() && (left.specifier() != VOID || left.indirection() > 1) && right.isInteger()){
+    if (left.isPointerToT() && right.isInteger()){
         return Type(left.specifier(), left.indirection());
     }
     if(op == "+"){
-        if(left.isInteger() && (right.specifier() != VOID || right.indirection() > 1)){
+        if(left.isInteger() && right.isPointerToT()){
             return Type(right.specifier(), right.indirection());
         }
     }
     if(op == "-"){
-        if(left.isPointer() && (left.specifier() != VOID || left.indirection() > 1) && left == right){
+        if(left.isPointerToT() && left == right){
             return integer;
         }
     }
@@ -299,7 +299,7 @@ Type checkDeref(const Type &operand){
     if(operand == error){
         return error;
     }
-    if (operand.isPointer() && (operand.specifier() != VOID || operand.indirection() > 1)){
+    if (operand.isPointerToT()){
         return Type(operand.specifier(), operand.indirection() - 1);
     }
     report(invalid_operand, "*");
@@ -350,7 +350,7 @@ Type checkPostfix(const Type &left, const Type &right){
     if(left == error && right == error){
         return error;
     }
-    if(left.isPointer() && (left.specifier() != VOID || left.indirection() > 1) && right.isInteger()){
+    if(left.isPointerToT() && right.isInteger()){
         return Type(left.specifier(), left.indirection() - 1);
     }
     report(invalid_operands, "[]");
@@ -376,7 +376,7 @@ Type checkFunction(const Type &function, const Parameters *args){
         return error;
     }
     Parameters *params = function.parameters();
-    if (params == nullptr || params->size() == 0){
+    if (params == nullptr){
         return Type(function.specifier(), function.indirection());
     }
     if(params->size() == args->size()){
