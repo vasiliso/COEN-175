@@ -24,11 +24,16 @@ Each phase is contained in its own folder, and for each new phase, correct code 
 
 ### The folder structure is as follows:
 
-Phase X-\
-----\CHECKSUB.sh -- Provided tester tool for each phase
-----\Docs -- Provided lab document and keynote
-----\exampled.tar -- Provided test cases
-----\phasex\ -- Implementation of phase x
+```
+Phase X
+│   CHECKSUB.sh -- Provided tester tool for each phase
+│   examples.tar -- Provided test cases    
+│
+└─── Docs -- Provided lab document and keynote
+│   
+│   
+└─── phasex\ -- Implementation of phase x
+```
 
 ### Build instructions
 * #### Build any phase
