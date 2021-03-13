@@ -1,3 +1,6 @@
+# VSCode config
+.vscode/
+
 # Prerequisites
 *.d
 
@@ -30,7 +33,3 @@
 *.exe
 *.out
 *.app
-
-# VSCode config
-
-*/.vscode/*
