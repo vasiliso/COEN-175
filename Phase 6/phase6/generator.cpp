@@ -639,4 +639,3 @@ Register *getreg(){
     load(nullptr, registers[0]);
     return registers[0];
 }
-
